@@ -13,3 +13,13 @@ pnpm install
 ```bash
 pnpm add express express-session pg passport passport-local ejs
 ```
+
+Create a `users` table in PostgreSQL:
+
+```SQL
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  username VARCHAR ( 255 ),
+  password VARCHAR ( 255 )
+);
+```
