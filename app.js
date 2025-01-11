@@ -76,6 +76,14 @@ app.post('/sign-up', async (req, res, next) => {
   }
 })
 
+app.post(
+  '/log-in',
+  passport.authenticate('local', {
+    successRedirect: '/',
+    failureRedirect: '/',
+  }),
+)
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}!`)
