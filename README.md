@@ -11,7 +11,7 @@ pnpm install
 ## Setup
 
 ```bash
-pnpm add express express-session pg passport passport-local ejs
+pnpm add bcrypt express express-session pg passport passport-local ejs
 ```
 
 Create a `users` table in PostgreSQL:

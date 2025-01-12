@@ -1,27 +1,44 @@
+const bcrypt = require('bcryptjs')
 const dotenv = require('dotenv')
 dotenv.config()
 
 const path = require('node:path')
-const { Pool } = require('pg')
 const express = require('express')
-const session = require('express-session')
 const passport = require('passport')
 const { dot } = require('node:test/reporters')
 const LocalStrategy = require('passport-local').Strategy
+
+const app = express()
+app.use(passport.session())
+app.use(express.urlencoded({ extended: false }))
+
+/* ======= Setup PostgreSQL database connection ======= */
+const { Pool } = require('pg')
+const expressSession = require('express-session')
+const pgSession = require('connect-pg-simple')(expressSession)
 
 const pool = new Pool({
   connectionString: process.env.DB_URI,
 })
 
-const app = express()
-app.set('views', path.join(__dirname, 'views'))
-app.set('view engine', 'ejs')
-
-app.use(session({ secret: 'cats', resave: false, saveUninitialized: false }))
-app.use(passport.session())
-app.use(express.urlencoded({ extended: false }))
+app.use(
+  expressSession({
+    store: new pgSession({
+      pool: pool, // Connection pool
+      tableName: 'user_sessions', // Use another table-name than the default "session" one
+      // connect-pg-simple options
+      createTableIfMissing: true,
+    }),
+    secret: process.env.COOKIE_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 1000 * 60 * 60 * 24 }, // 1 day
+    // 1000ms = 1s, 60s = 1m, 60m = 1hr, 24hr = 1day
+  }),
+)
 
 /* =========== Passport Setup ============ */
+
 app.use((req, res, next) => {
   res.locals.currentUser = req.user
   next()
@@ -39,7 +56,8 @@ passport.use(
       if (!user) {
         return done(null, false, { message: 'Incorrect username' })
       }
-      if (user.password !== password) {
+      const match = await bcrypt.compare(password, user.password)
+      if (!match) {
         return done(null, false, { message: 'Incorrect password' })
       }
       return done(null, user)
@@ -64,6 +82,11 @@ passport.deserializeUser(async (id, done) => {
   }
 })
 
+/* =========== VIEWS ============ */
+
+app.set('views', path.join(__dirname, 'views'))
+app.set('view engine', 'ejs')
+
 /* =========== ROUTES =========== */
 
 app.get('/', (req, res) => {
@@ -73,6 +96,11 @@ app.get('/', (req, res) => {
 app.get('/sign-up', (req, res) => res.render('sign-up-form'))
 app.post('/sign-up', async (req, res, next) => {
   try {
+    bcrypt.hash(req.body.password, 10, async (err, hashedPassword) => {
+      if (err) {
+        return next(err)
+      }
+    })
     await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', [
       req.body.username,
       req.body.password,
@@ -100,6 +128,9 @@ app.get('/log-out', (req, res, next) => {
   })
 })
 
+/**
+ *  ---------------- SERVER ---------------
+ */
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}!`)
