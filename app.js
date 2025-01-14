@@ -1,15 +1,17 @@
-const bcrypt = require('bcryptjs')
 const dotenv = require('dotenv')
 dotenv.config()
 
+const bcrypt = require('bcryptjs')
 const path = require('node:path')
-const express = require('express')
 const passport = require('passport')
-const { dot } = require('node:test/reporters')
 const LocalStrategy = require('passport-local').Strategy
 
+/**
+ * Express app setup
+ */
+const express = require('express')
 const app = express()
-app.use(passport.session())
+app.use(express.json())
 app.use(express.urlencoded({ extended: false }))
 
 /* ======= Setup PostgreSQL database connection ======= */
@@ -21,23 +23,49 @@ const pool = new Pool({
   connectionString: process.env.DB_URI,
 })
 
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) {
+    console.error('Database connection error:', err)
+  } else {
+    console.log('Database connected successfully')
+  }
+})
+
+const sessionStore = new pgSession({
+  pool: pool, // Connection pool
+  tableName: 'session', // Use another table-name than the default "session" one
+  // connect-pg-simple options
+  createTableIfMissing: true,
+})
+
+sessionStore.on('error', (error) => {
+  console.error('Session store error:', error)
+})
+
 app.use(
   expressSession({
-    store: new pgSession({
-      pool: pool, // Connection pool
-      tableName: 'user_sessions', // Use another table-name than the default "session" one
-      // connect-pg-simple options
-      createTableIfMissing: true,
-    }),
-    secret: process.env.COOKIE_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { maxAge: 1000 * 60 * 60 * 24 }, // 1 day
-    // 1000ms = 1s, 60s = 1m, 60m = 1hr, 24hr = 1day
+    store: sessionStore,
+    secret: process.env.SECRET,
+    resave: true,
+    saveUninitialized: true,
+    cookie: {
+      // 1000ms = 1s, 60s = 1m, 60m = 1hr, 24hr = 1day
+      maxAge: 1000 * 60 * 60 * 24,
+      secure: false,
+    }, // 1 day
   }),
 )
 
+// logging middleware to verify session created
+app.use((req, res, next) => {
+  console.log('Session ID:', req.sessionID)
+  console.log('Session:', req.session)
+  next()
+})
+
 /* =========== Passport Setup ============ */
+app.use(passport.initialize())
+app.use(passport.session())
 
 app.use((req, res, next) => {
   res.locals.currentUser = req.user
@@ -45,26 +73,32 @@ app.use((req, res, next) => {
 })
 
 passport.use(
-  new LocalStrategy(async (username, password, done) => {
-    try {
-      const { rows } = await pool.query(
-        'SELECT * FROM users WHERE username = $1',
-        [username],
-      )
-      const user = rows[0]
+  new LocalStrategy(
+    {
+      usernameField: 'email',
+      passwordField: 'password',
+    },
+    async (email, password, done) => {
+      try {
+        const { rows } = await pool.query(
+          'SELECT * FROM users WHERE email = $1',
+          [email],
+        )
+        const user = rows[0]
 
-      if (!user) {
-        return done(null, false, { message: 'Incorrect username' })
+        if (!user) {
+          return done(null, false, { message: 'Incorrect email' })
+        }
+        const match = await bcrypt.compare(password, user.password)
+        if (!match) {
+          return done(null, false, { message: 'Incorrect password' })
+        }
+        return done(null, user)
+      } catch (err) {
+        return done(err)
       }
-      const match = await bcrypt.compare(password, user.password)
-      if (!match) {
-        return done(null, false, { message: 'Incorrect password' })
-      }
-      return done(null, user)
-    } catch (err) {
-      return done(err)
-    }
-  }),
+    },
+  ),
 )
 
 passport.serializeUser((user, done) => {
@@ -101,8 +135,8 @@ app.post('/sign-up', async (req, res, next) => {
         return next(err)
       }
     })
-    await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', [
-      req.body.username,
+    await pool.query('INSERT INTO users (email, password) VALUES ($1, $2)', [
+      req.body.email,
       req.body.password,
     ])
     res.redirect('/')
@@ -112,14 +146,23 @@ app.post('/sign-up', async (req, res, next) => {
 })
 
 app.post(
-  '/log-in',
+  '/login',
   passport.authenticate('local', {
     successRedirect: '/',
     failureRedirect: '/',
   }),
+  (req, res) => {
+    // Force session save
+    req.session.save((err) => {
+      if (err) console.error('Session save error:', err)
+    })
+  },
 )
 
-app.get('/log-out', (req, res, next) => {
+app.get('/logout', (req, res, next) => {
+  // req.logout(() => {
+  //   res.json({ message: 'Logged out successfully' })
+  // })
   req.logout((err) => {
     if (err) {
       return next(err)

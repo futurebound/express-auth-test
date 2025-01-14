@@ -5,14 +5,19 @@
     <title></title>
   </head>
   <body>
-    <% if (currentUser) {%>
-    <h1>WELCOME BACK <%= currentUser.username %></h1>
-    <a href="/log-out">LOG OUT</a>
+    <% if (locals.user) {%>
+    <h1>WELCOME BACK <%= user.email %></h1>
+    <a href="/logout">LOG OUT</a>
     <% } else { %>
     <h1>please log in</h1>
-    <form action="/log-in" method="POST">
-      <label for="username">Username</label>
-      <input id="username" name="username" placeholder="username" type="text" />
+    <form action="/login" method="POST">
+      <label for="email">Email</label>
+      <input
+        id="email"
+        name="email"
+        placeholder="email@email.com"
+        type="email"
+      />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" />
       <button>Log In</button>
